@@ -86,61 +86,37 @@ print("【Step 1】Loading Data...")
 # 创建输出目录
 os.makedirs('out', exist_ok=True)
 
-# 从 input 目录读取 xlsx 文件
-input_file = 'input/input_data-10k.xlsx'
-output_file = 'input/output_data-10k.xlsx'
+# 从 input 目录读取对齐后的 xlsx 文件
+input_file = 'input/input_aligned.xlsx'
+output_file = 'input/output_aligned.xlsx'
 
 print(f"Loading input data from: {input_file}")
 print(f"Loading output data from: {output_file}")
 
-# 读取 xlsx 文件
+# 读取对齐后的 xlsx 文件（已经过预处理，无需额外处理）
 df_input = pd.read_excel(input_file)
 df_output = pd.read_excel(output_file)
 
-print(f"\n原始数据形状:")
-print(f"  Input: {df_input.shape} (行数 × 列数)")
-print(f"  Output: {df_output.shape}")
+print(f"\n数据形状:")
+print(f"  Input: {df_input.shape} (10000 行 × 17 列)")
+print(f"  Output: {df_output.shape} (10000 行 × 5 列)")
 
-# 跳过第一列索引列 ('No.' 和 'n')，并选择需要的列
-# Input: 跳过 'No.' 列
-if 'No.' in df_input.columns:
-    df_input = df_input.drop('No.', axis=1)
-    print(f"  跳过 'No.' 列后: {df_input.shape}")
+print(f"\n输入特征 (17 列):")
+for i, col in enumerate(df_input.columns, 1):
+    print(f"  [{i:2d}] {col}")
 
-# Output: 跳过 'n' 列，选择第一个数据列作为目标（XDIS_TO_LTP_m）
-if 'n' in df_output.columns:
-    df_output = df_output.drop('n', axis=1)
-    print(f"  跳过 'n' 列后: {df_output.shape}")
-
-# 如果 input 行数不等于 output 行数，需要对齐
-if len(df_input) != len(df_output):
-    print(f"\n⚠️  警告: Input 和 Output 行数不匹配!")
-    print(f"  Input: {len(df_input)} 行")
-    print(f"  Output: {len(df_output)} 行")
-    # 取最小行数
-    min_rows = min(len(df_input), len(df_output))
-    df_input = df_input.iloc[:min_rows]
-    df_output = df_output.iloc[:min_rows]
-    print(f"  对齐后使用前 {min_rows} 行")
+print(f"\n输出变量 (5 列，使用第 1 列作为目标):")
+for i, col in enumerate(df_output.columns, 1):
+    target_mark = " ← 目标" if i == 1 else ""
+    print(f"  [{i}] {col}{target_mark}")
 
 # 转换为 numpy 数组
 X_input = df_input.values
 X_output = df_output.values
 
-# 如果 input 列数超过预期，选择前 N 列或根据需要调整
-expected_input_dim = 17
-if X_input.shape[1] > expected_input_dim:
-    print(f"\n⚠️  Input 有 {X_input.shape[1]} 列，模型期望 {expected_input_dim} 列")
-    print(f"  使用前 {expected_input_dim} 列作为输入特征")
-    X_input = X_input[:, :expected_input_dim]
-elif X_input.shape[1] < expected_input_dim:
-    print(f"\n⚠️  Input 只有 {X_input.shape[1]} 列，模型期望 {expected_input_dim} 列")
-    print(f"  将使用所有 {X_input.shape[1]} 列，模型输入维度将调整")
-    expected_input_dim = X_input.shape[1]
-
 print(f"\n最终数据形状:")
-print(f"  Input: {X_input.shape}")
-print(f"  Output: {X_output.shape}")
+print(f"  X_input: {X_input.shape}")
+print(f"  X_output: {X_output.shape}")
 
 np.random.seed(42)
 perm = np.random.permutation(len(X_input))
