@@ -97,12 +97,50 @@ print(f"Loading output data from: {output_file}")
 df_input = pd.read_excel(input_file)
 df_output = pd.read_excel(output_file)
 
+print(f"\n原始数据形状:")
+print(f"  Input: {df_input.shape} (行数 × 列数)")
+print(f"  Output: {df_output.shape}")
+
+# 跳过第一列索引列 ('No.' 和 'n')，并选择需要的列
+# Input: 跳过 'No.' 列
+if 'No.' in df_input.columns:
+    df_input = df_input.drop('No.', axis=1)
+    print(f"  跳过 'No.' 列后: {df_input.shape}")
+
+# Output: 跳过 'n' 列，选择第一个数据列作为目标（XDIS_TO_LTP_m）
+if 'n' in df_output.columns:
+    df_output = df_output.drop('n', axis=1)
+    print(f"  跳过 'n' 列后: {df_output.shape}")
+
+# 如果 input 行数不等于 output 行数，需要对齐
+if len(df_input) != len(df_output):
+    print(f"\n⚠️  警告: Input 和 Output 行数不匹配!")
+    print(f"  Input: {len(df_input)} 行")
+    print(f"  Output: {len(df_output)} 行")
+    # 取最小行数
+    min_rows = min(len(df_input), len(df_output))
+    df_input = df_input.iloc[:min_rows]
+    df_output = df_output.iloc[:min_rows]
+    print(f"  对齐后使用前 {min_rows} 行")
+
 # 转换为 numpy 数组
 X_input = df_input.values
 X_output = df_output.values
 
-print(f"Input shape: {X_input.shape}")
-print(f"Output shape: {X_output.shape}")
+# 如果 input 列数超过预期，选择前 N 列或根据需要调整
+expected_input_dim = 17
+if X_input.shape[1] > expected_input_dim:
+    print(f"\n⚠️  Input 有 {X_input.shape[1]} 列，模型期望 {expected_input_dim} 列")
+    print(f"  使用前 {expected_input_dim} 列作为输入特征")
+    X_input = X_input[:, :expected_input_dim]
+elif X_input.shape[1] < expected_input_dim:
+    print(f"\n⚠️  Input 只有 {X_input.shape[1]} 列，模型期望 {expected_input_dim} 列")
+    print(f"  将使用所有 {X_input.shape[1]} 列，模型输入维度将调整")
+    expected_input_dim = X_input.shape[1]
+
+print(f"\n最终数据形状:")
+print(f"  Input: {X_input.shape}")
+print(f"  Output: {X_output.shape}")
 
 np.random.seed(42)
 perm = np.random.permutation(len(X_input))
@@ -355,8 +393,10 @@ for model_idx in range(n_models):
         batch_size=256,
         shuffle=False
     )
-    
-    model = ImprovedComplexNet(17).to(device)
+
+    # 使用实际的输入维度
+    input_dim = X_train.shape[1]
+    model = ImprovedComplexNet(input_dim).to(device)
     train_losses, val_losses = train_model_improved(
         model, train_loader, val_loader,
         y_train_true, y_val_true, y_mean, y_std,
@@ -618,10 +658,31 @@ results_df = pd.DataFrame({
 # 按原始索引排序
 results_df = results_df.sort_values('Index').reset_index(drop=True)
 
-# 保存到 xlsx 文件
+# 保存到 xlsx 文件（使用 ExcelWriter 保存多个 sheet）
 output_predictions_file = 'out/predictions.xlsx'
-results_df.to_excel(output_predictions_file, index=False)
+with pd.ExcelWriter(output_predictions_file, engine='openpyxl') as writer:
+    # Sheet 1: 预测结果
+    results_df.to_excel(writer, sheet_name='Predictions', index=False)
+
+    # Sheet 2: 使用的输入特征列名
+    feature_info = pd.DataFrame({
+        'Feature_Index': range(len(df_input.columns)),
+        'Feature_Name': df_input.columns.tolist()
+    })
+    feature_info.to_excel(writer, sheet_name='Input_Features', index=False)
+
+    # Sheet 3: 输出列信息
+    output_info = pd.DataFrame({
+        'Output_Index': range(len(df_output.columns)),
+        'Output_Name': df_output.columns.tolist(),
+        'Used_as_Target': ['Yes' if i == 0 else 'No' for i in range(len(df_output.columns))]
+    })
+    output_info.to_excel(writer, sheet_name='Output_Columns', index=False)
+
 print(f"✓ Saved predictions to: {output_predictions_file}")
+print(f"  - Sheet 'Predictions': 预测结果")
+print(f"  - Sheet 'Input_Features': 输入特征列名")
+print(f"  - Sheet 'Output_Columns': 输出列信息")
 
 # 保存性能指标摘要
 metrics_df = pd.DataFrame({
