@@ -688,3 +688,37 @@ metrics_df.to_excel(output_metrics_file, index=False)
 print(f"✓ Saved metrics summary to: {output_metrics_file}")
 
 print("\n✅ All outputs saved to 'out/' directory!")
+
+#%% 保存模型和参数供推理使用
+print("\n【Step 5】Saving Models and Parameters for Inference...")
+
+import pickle
+
+# 保存所有集成模型
+for i, model in enumerate(all_models):
+    model_file = f'out/model_{i}.pth'
+    torch.save(model.state_dict(), model_file)
+    print(f"✓ Saved model {i+1}/5 to: {model_file}")
+
+# 保存标准化参数
+normalization_params = {
+    'X_mean': X_mean,
+    'X_std': X_std,
+    'y_mean': y_mean,
+    'y_std': y_std,
+    'input_dim': X_train.shape[1]
+}
+
+norm_file = 'out/normalization_params.pkl'
+with open(norm_file, 'wb') as f:
+    pickle.dump(normalization_params, f)
+print(f"✓ Saved normalization parameters to: {norm_file}")
+
+# 保存Isotonic校准模型
+iso_file = 'out/isotonic_model.pkl'
+with open(iso_file, 'wb') as f:
+    pickle.dump(iso, f)
+print(f"✓ Saved Isotonic calibration model to: {iso_file}")
+
+print("\n✅ All models and parameters saved for inference!")
+print("\nYou can now use 'predict_monte_carlo.py' to make predictions on new data.")
