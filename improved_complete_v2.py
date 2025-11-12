@@ -11,10 +11,10 @@
 """
 
 import numpy as np
-import scipy.io as sio
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib
+import os
 matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans']
 
 import torch
@@ -82,9 +82,41 @@ class PinballLoss(nn.Module):
 
 #%% 加载数据
 print("【Step 1】Loading Data...")
-data = sio.loadmat('data_sum_10k.mat')
-X_input = data['input_sum']
-X_output = data['data_sum']
+
+# 创建输出目录
+os.makedirs('out', exist_ok=True)
+
+# 从 input 目录读取对齐后的 xlsx 文件
+input_file = 'input/input_aligned.xlsx'
+output_file = 'input/output_aligned.xlsx'
+
+print(f"Loading input data from: {input_file}")
+print(f"Loading output data from: {output_file}")
+
+# 读取对齐后的 xlsx 文件（已经过预处理，无需额外处理）
+df_input = pd.read_excel(input_file)
+df_output = pd.read_excel(output_file)
+
+print(f"\n数据形状:")
+print(f"  Input: {df_input.shape} (10000 行 × 17 列)")
+print(f"  Output: {df_output.shape} (10000 行 × 5 列)")
+
+print(f"\n输入特征 (17 列):")
+for i, col in enumerate(df_input.columns, 1):
+    print(f"  [{i:2d}] {col}")
+
+print(f"\n输出变量 (5 列，使用第 1 列作为目标):")
+for i, col in enumerate(df_output.columns, 1):
+    target_mark = " ← 目标" if i == 1 else ""
+    print(f"  [{i}] {col}{target_mark}")
+
+# 转换为 numpy 数组
+X_input = df_input.values
+X_output = df_output.values
+
+print(f"\n最终数据形状:")
+print(f"  X_input: {X_input.shape}")
+print(f"  X_output: {X_output.shape}")
 
 np.random.seed(42)
 perm = np.random.permutation(len(X_input))
@@ -337,8 +369,10 @@ for model_idx in range(n_models):
         batch_size=256,
         shuffle=False
     )
-    
-    model = ImprovedComplexNet(17).to(device)
+
+    # 使用实际的输入维度
+    input_dim = X_train.shape[1]
+    model = ImprovedComplexNet(input_dim).to(device)
     train_losses, val_losses = train_model_improved(
         model, train_loader, val_loader,
         y_train_true, y_val_true, y_mean, y_std,
@@ -515,8 +549,9 @@ ax.set_title('Performance Metrics', fontweight='bold', fontsize=11)
 ax.grid(True, alpha=0.3, axis='y')
 
 plt.tight_layout()
-plt.savefig('improved_resnet_complete.png', dpi=300, bbox_inches='tight')
-print("✓ Saved: improved_resnet_complete.png\n")
+output_plot_file = 'out/improved_resnet_complete.png'
+plt.savefig(output_plot_file, dpi=300, bbox_inches='tight')
+print(f"✓ Saved: {output_plot_file}\n")
 plt.show()
 
 #%% 诊断与验收标准
@@ -575,3 +610,81 @@ print("✓ 改进的 Focal-MSE：gamma=1.2（稳健），内置 EMA 平滑")
 print("✓ 尾部采样：权重倍数 3（不过度）")
 print("✓ Isotonic 校准：修正系统性偏差")
 print("✓ 轻度正则化：Dropout≤0.1, weight_decay=1e-6")
+
+#%% 保存预测结果到 xlsx 文件
+print("\n【Step 4】Saving Predictions to Excel...")
+
+# 合并训练集和验证集的结果
+all_indices = np.concatenate([train_idx, val_idx])
+all_true_values = np.concatenate([y_train_true, y_val_true])
+all_pred_before = np.concatenate([y_train_pred, y_val_pred])
+all_pred_after = np.concatenate([y_train_pred_cal, y_val_pred_cal])
+
+# 创建结果 DataFrame
+results_df = pd.DataFrame({
+    'Index': all_indices,
+    'True_Value': all_true_values,
+    'Predicted_Before_Calibration': all_pred_before,
+    'Predicted_After_Calibration': all_pred_after,
+    'Residual_Before': all_true_values - all_pred_before,
+    'Residual_After': all_true_values - all_pred_after,
+    'Dataset': ['Train'] * len(train_idx) + ['Val'] * len(val_idx)
+})
+
+# 按原始索引排序
+results_df = results_df.sort_values('Index').reset_index(drop=True)
+
+# 保存到 xlsx 文件（使用 ExcelWriter 保存多个 sheet）
+output_predictions_file = 'out/predictions.xlsx'
+with pd.ExcelWriter(output_predictions_file, engine='openpyxl') as writer:
+    # Sheet 1: 预测结果
+    results_df.to_excel(writer, sheet_name='Predictions', index=False)
+
+    # Sheet 2: 使用的输入特征列名
+    feature_info = pd.DataFrame({
+        'Feature_Index': range(len(df_input.columns)),
+        'Feature_Name': df_input.columns.tolist()
+    })
+    feature_info.to_excel(writer, sheet_name='Input_Features', index=False)
+
+    # Sheet 3: 输出列信息
+    output_info = pd.DataFrame({
+        'Output_Index': range(len(df_output.columns)),
+        'Output_Name': df_output.columns.tolist(),
+        'Used_as_Target': ['Yes' if i == 0 else 'No' for i in range(len(df_output.columns))]
+    })
+    output_info.to_excel(writer, sheet_name='Output_Columns', index=False)
+
+print(f"✓ Saved predictions to: {output_predictions_file}")
+print(f"  - Sheet 'Predictions': 预测结果")
+print(f"  - Sheet 'Input_Features': 输入特征列名")
+print(f"  - Sheet 'Output_Columns': 输出列信息")
+
+# 保存性能指标摘要
+metrics_df = pd.DataFrame({
+    'Metric': ['RMSE', 'MAE', 'R²', 'Tail_MAE', 'Tail_RMSE', 'Train_RMSE', 'Val/Train_Ratio'],
+    'Before_Calibration': [
+        rmse_val_before,
+        mae_val_before,
+        r2_val_before,
+        tail_mae_before,
+        tail_rmse_before,
+        np.sqrt(np.mean((y_train_true - y_train_pred) ** 2)),
+        '-'
+    ],
+    'After_Calibration': [
+        rmse_val_after,
+        mae_val_after,
+        r2_val_after,
+        tail_mae_after,
+        tail_rmse_after,
+        rmse_train_after,
+        f'{overfitting_ratio:.3f}'
+    ]
+})
+
+output_metrics_file = 'out/metrics_summary.xlsx'
+metrics_df.to_excel(output_metrics_file, index=False)
+print(f"✓ Saved metrics summary to: {output_metrics_file}")
+
+print("\n✅ All outputs saved to 'out/' directory!")
